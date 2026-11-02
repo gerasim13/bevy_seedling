@@ -177,9 +177,7 @@ impl ProcessorHost {
             self.latest_timestamp = timestamp;
         }
 
-        let time_since_stamp = current_time - self.latest_timestamp.audio_thread;
-        let process_timestamp = self.latest_timestamp.main_thread
-            + std::time::Duration::from_secs_f64(time_since_stamp / 1000.0);
+        let process_timestamp = self.latest_timestamp.at_audio_time(current_time);
 
         self.processor.process(
             &WorkletBuffer {
@@ -237,4 +235,55 @@ impl ProcessorHost {
 pub struct Timestamp {
     pub main_thread: Instant,
     pub audio_thread: f64,
+}
+
+impl Timestamp {
+    fn at_audio_time(&self, current_time: f64) -> Instant {
+        let elapsed = current_time - self.audio_thread;
+        let offset = std::time::Duration::from_secs_f64(elapsed.abs());
+        if elapsed < 0.0 {
+            self.main_thread - offset
+        } else {
+            self.main_thread + offset
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Timestamp;
+    use bevy_platform::time::Instant;
+    use std::time::Duration;
+
+    #[test]
+    fn audio_clock_offsets_are_signed_seconds() {
+        let main_thread = Instant::now() + Duration::from_secs(10);
+        let stamp = Timestamp {
+            main_thread,
+            audio_thread: 2.0,
+        };
+        assert_eq!(
+            stamp.at_audio_time(2.5),
+            main_thread + Duration::from_millis(500)
+        );
+        assert_eq!(
+            stamp.at_audio_time(1.5),
+            main_thread - Duration::from_millis(500)
+        );
+        assert_eq!(stamp.at_audio_time(2.0), main_thread);
+    }
+
+    #[test]
+    fn first_callback_can_precede_the_main_audio_clock() {
+        let main_thread = Instant::now() + Duration::from_secs(10);
+        let quantum = 128.0 / 44100.0;
+        let stamp = Timestamp {
+            main_thread,
+            audio_thread: quantum,
+        };
+        assert_eq!(
+            stamp.at_audio_time(0.0),
+            main_thread - Duration::from_secs_f64(quantum)
+        );
+    }
 }
