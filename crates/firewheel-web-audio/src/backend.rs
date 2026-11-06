@@ -7,6 +7,7 @@ use firewheel::{
     ActivateInfo, FirewheelContext, collector::ArcGc, error::ActivateError,
     processor::FirewheelProcessor,
 };
+use js_sys::Promise;
 use std::{
     cell::RefCell,
     num::NonZeroU32,
@@ -16,7 +17,7 @@ use std::{
         mpsc::{self, TrySendError},
     },
 };
-use wasm_bindgen::{JsCast, JsValue};
+use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use web_sys::{AudioContext, AudioContextOptions, AudioContextState, AudioWorkletNode};
 
 /// The main-thread host for the Web Audio API backend.
@@ -324,13 +325,23 @@ async fn prepare_context(
     let mod_url = crate::dynamic_module::dependent_module!("./js/audio-worklet.js")
         .context("loading dynamic context")?;
 
-    wasm_bindgen_futures::JsFuture::from(
-        context
-            .audio_worklet()
-            .context("fetching audio worklet")?
-            .add_module(mod_url.trim_start_matches('.'))
-            .context("creating audio worklet module")?,
-    )
+    let worklet = context.audio_worklet().context("fetching audio worklet")?;
+    let module_url = mod_url.trim_start_matches('.').to_owned();
+    let load_module = Closure::once(
+        move |_lock: JsValue| match worklet.add_module(&module_url) {
+            Ok(module) => module,
+            Err(error) => Promise::reject(&error),
+        },
+    );
+    let locks = web_sys::window()
+        .ok_or("Worklet initialization requires a browser window")?
+        .navigator()
+        .locks();
+    // Workers import this same bindgen graph under the shared bootstrap lock.
+    wasm_bindgen_futures::JsFuture::from(locks.request_with_callback(
+        "wasm_safe_thread:bootstrap",
+        load_module.as_ref().unchecked_ref(),
+    ))
     .await
     .context("creating audio worklet module")?;
 

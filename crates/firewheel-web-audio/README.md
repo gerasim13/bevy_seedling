@@ -18,7 +18,7 @@ some additional requirements.
 
 ```toml
 [target.wasm32-unknown-unknown]
-rustflags = ["-C", "target-feature=+atomics,+bulk-memory,+mutable-globals"]
+rustflags = ["--cfg=web_sys_unstable_apis", "-C", "target-feature=+atomics,+bulk-memory,+mutable-globals"]
 
 [unstable]
 build-std = ["std", "core", "alloc", "panic_abort"]
@@ -36,6 +36,10 @@ Cross-Origin-Embedder-Policy: credentialless
 
 Note that `credentialless` may not work on Safari: the browser
 may throw an error in the audio worklet upon receiving shared Wasm memory.
+
+Worklet module imports share the `wasm_safe_thread:bootstrap` Web Lock with
+worker initialization. Only asynchronous setup waits for this admission;
+audio processing does not take the lock.
 
 #### License
 

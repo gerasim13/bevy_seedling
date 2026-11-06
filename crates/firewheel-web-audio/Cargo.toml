@@ -50,6 +50,8 @@ features = [
   "Document",
   "Event",
   "Navigator",
+  "Lock",
+  "LockManager",
   "MediaDevices",
   "MessagePort",
   "ErrorEvent",
